@@ -21,7 +21,7 @@ st.divider()
 
 # --- 録音ウィジェット ---
 st.subheader("マイクで録音")
-st.info("下のaアイコンをクリックして録音を開始・停止します。")
+st.info("下のアイコンをクリックして録音を開始・停止します。")
 
 # st_audiorecコンポーネントを呼び出す
 wav_audio_data = st_audiorec() # 録音が完了すると、ここに音声データがbytes形式で入ります

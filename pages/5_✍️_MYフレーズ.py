@@ -33,7 +33,7 @@ with st.sidebar.expander("新しいフォルダを作成"):
             st.sidebar.error("そのフォルダ名は既に使用されています。")
 
 # 表示するフォルダをセレクトボックスで選択
-selected_folder = st.selectbox("表示または追加したいフォルダを選択してください", folders)
+selected_folder = st.multiselect("表示または追加したいフォルダを選択してください", folders)
 
 
 # --- フレーズの新規登録 ---

@@ -1,5 +1,8 @@
+import streamlit as st
 import sqlite3
 import pandas as pd
+import time
+from datetime import date
 
 DB_PATH = 'english_study.db'
 
@@ -22,6 +25,15 @@ def get_db_connection():
         CREATE TABLE IF NOT EXISTS folders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL
+        )
+    ''')
+    # study_logテーブルを追記
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS study_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_date DATE NOT NULL,
+            duration_minutes INTEGER NOT NULL,
+            activity_type TEXT NOT NULL
         )
     ''')
     # 初期データとしてデフォルトフォルダを作成
@@ -52,7 +64,7 @@ def get_folders():
     conn = sqlite3.connect(DB_PATH)
     folders = conn.execute("SELECT name FROM folders ORDER BY name").fetchall()
     conn.close()
-    return [folder['name'] for folder in folders]
+    return [folder[0] for folder in folders]
 
 def add_phrase(folder, japanese, english):
     """新しいフレーズを追加する"""
@@ -88,6 +100,32 @@ def delete_phrase(phrase_id):
     conn.execute("DELETE FROM phrases WHERE id = ?", (phrase_id,))
     conn.commit()
     conn.close()
+
+def log_study_session(duration_minutes, activity_type='speaking'):
+    """学習セッションを記録する"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "INSERT INTO study_log (session_date, duration_minutes, activity_type) VALUES (?, ?, ?)",
+        (date.today(), duration_minutes, activity_type)
+    )
+    conn.commit()
+    conn.close()
+
+@st.cache_data
+def get_study_log():
+    """すべての学習記録をDataFrameとして取得する"""
+    # この関数が実行されたときにメッセージを表示し、3秒待つ
+    with st.spinner("データをロード中..."):
+        time.sleep(3) 
+
+    conn = sqlite3.connect(DB_PATH)
+    query = "SELECT session_date, duration_minutes FROM study_log"
+    df = pd.read_sql_query(query, conn)
+    # session_dateをdatetime型に変換
+    if not df.empty:
+        df['session_date'] = pd.to_datetime(df['session_date'])
+    conn.close()
+    return df
 
 # アプリ起動時に一度だけ実行
 get_db_connection()
