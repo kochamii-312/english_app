@@ -25,7 +25,7 @@ with st.sidebar:
             # キャッシュをクリアしてグラフを更新
             st.cache_data.clear() 
             st.rerun()
-            
+
 # データベースから学習記録を取得
 df = get_study_log()
 
@@ -73,8 +73,8 @@ with tab2:
     calendar_events = []
     if not df.empty:
         # 日付ごとに学習時間を集計
-        daily_summary = df.groupby('session_date')['duration_minutes'].sum().reset_index()
-        for _, row in daily_summary.iterrows():
+        weekly_summary = df.groupby('session_date')['duration_minutes'].sum().reset_index()
+        for _, row in weekly_summary.iterrows():
             calendar_events.append({
                 "title": f"{row['duration_minutes']} min",
                 "start": row['session_date'].strftime("%Y-%m-%d"),

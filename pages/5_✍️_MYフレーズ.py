@@ -1,5 +1,10 @@
+import json
+import os
+import re
 import streamlit as st
 import pandas as pd
+from dotenv import load_dotenv
+from openai import OpenAI
 from database import (
     get_folders,
     add_folder,
@@ -8,6 +13,52 @@ from database import (
     update_phrase,
     delete_phrase
 )
+from pathlib import Path
+
+load_dotenv()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+
+def _is_japanese(text: str) -> bool:
+    return bool(re.search(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9faf]", text))
+
+def translate_text(client: OpenAI, text: str) -> dict:
+    """日↔英を自動判定して、{"english": "...", "japanese": "..."} を返す"""
+    src_is_jp = _is_japanese(text)
+    sys = "You are a professional translator for English↔Japanese study."
+    if src_is_jp:
+        user = f"""
+Translate the following Japanese text into natural, concise, study-friendly English.
+Keep meaning faithful; don't add info.
+
+Return ONLY JSON: {{"english":"...","japanese":"..."}}.
+- "japanese" MUST be the original input (unchanged).
+Text: {text}
+"""
+    else:
+        user = f"""
+Translate the following English text into natural, concise, study-friendly Japanese.
+Keep meaning faithful; don't add info.
+
+Return ONLY JSON: {{"english":"...","japanese":"..."}}.
+- "english" MUST be the original input (unchanged).
+Text: {text}
+"""
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        temperature=0.2,
+        messages=[
+            {"role": "system", "content": sys},
+            {"role": "user", "content": user}
+        ]
+    )
+    content = resp.choices[0].message.content.strip()
+    start = content.find("{"); end = content.rfind("}")
+    if start != -1 and end != -1:
+        content = content[start:end+1]
+    import json
+    data = json.loads(content)
+    return {"english": data["english"], "japanese": data["japanese"]}
 
 st.set_page_config(page_title="MYフレーズ", layout="wide")
 
@@ -33,24 +84,59 @@ with st.sidebar.expander("新しいフォルダを作成"):
             st.sidebar.error("そのフォルダ名は既に使用されています。")
 
 # 表示するフォルダをセレクトボックスで選択
-selected_folder = st.multiselect("表示または追加したいフォルダを選択してください", folders)
+selected_folder = st.selectbox("表示するフォルダを選択してください", folders)  # ← 文字列になる
+add_target_folders = st.multiselect("追加先フォルダを選択（複数可）", folders)
 
 
 # --- フレーズの新規登録 ---
 st.header("➕ 新しいフレーズを登録")
 
-with st.form(key="phrase_form", clear_on_submit=True):
-    japanese_input = st.text_area("日本語", placeholder="例：それは素晴らしい考えです。")
-    english_input = st.text_area("英語", placeholder="例：That's a great idea.")
-    submit_button = st.form_submit_button(label="登録")
+with st.form(key="phrase_form", clear_on_submit=False):
+    # 入力欄（キー付きに変更：翻訳結果を流し込める）
+    col_a, col_b = st.columns(2)
+    with col_a:
+        japanese_input = st.text_area("日本語", key="jp_input", placeholder="例：それは素晴らしい考えです。")
+    with col_b:
+        english_input = st.text_area("英語", key="en_input", placeholder="例：That's a great idea.")
 
-    if submit_button:
-        if japanese_input and english_input:
-            add_phrase(selected_folder, japanese_input, english_input)
-            st.success(f"'{selected_folder}' フォルダにフレーズを登録しました！")
-        else:
-            st.warning("日本語と英語の両方を入力してください。")
+    do_translate = st.checkbox("翻訳する（片方だけ入力でOK：自動で日↔英を判定）")
+    translate_button = st.form_submit_button("翻訳する")
+    submit_button = st.form_submit_button("登録")
 
+# 翻訳ハンドリング（フォーム外で state を更新して反映）
+if do_translate and translate_button:
+    src = (st.session_state.get("jp_input","").strip() or
+           st.session_state.get("en_input","").strip())
+    if not src:
+        st.warning("翻訳するテキストを日本語または英語のどちらかに入力してください。")
+    else:
+        try:
+            tr = translate_text(client, src)
+            # 片方だけ入力だった場合は、空欄側を自動補完
+            if not st.session_state.get("jp_input"):
+                st.session_state.jp_input = tr["japanese"]
+            if not st.session_state.get("en_input"):
+                st.session_state.en_input = tr["english"]
+            st.success("翻訳しました。必要に応じて編集してから『登録』を押してください。")
+            st.markdown("**翻訳結果（英語）**"); st.write(tr["english"])
+            st.markdown("**翻訳結果（日本語）**"); st.write(tr["japanese"])
+        except Exception as e:
+            st.error(f"翻訳中にエラーが発生しました: {e}")
+
+# 登録ボタン（既存ロジックを state 参照に変更）
+if submit_button:
+    jp = (st.session_state.get("jp_input") or "").strip()
+    en = (st.session_state.get("en_input") or "").strip()
+    if not jp or not en:
+        st.warning("日本語と英語の両方を入力してください（翻訳ボタンで自動補完も可能です）。")
+    elif not add_target_folders:
+        st.warning("追加先フォルダを1つ以上選んでください。")
+    else:
+        ok = 0
+        for f in add_target_folders:
+            add_phrase(f, jp, en)
+            ok += 1
+        st.success(f"{ok} 件のフォルダにフレーズを登録しました！")
 st.divider()
 
 
@@ -108,3 +194,20 @@ if not phrases_df.empty:
 
 else:
     st.info("このフォルダにはまだフレーズが登録されていません。")
+
+if st.button("🗂️ すべてをJSONにエクスポート"):
+    export = []
+    for f in get_folders():
+        df = get_phrases_by_folder(f)
+        if not df.empty:
+            for _, row in df.iterrows():
+                export.append({
+                    "id": int(row["id"]),
+                    "folder": f,
+                    "japanese": row["japanese"],
+                    "english": row["english"],
+                })
+    out_path = Path("./json/phrases_export.json")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(export, ensure_ascii=False, indent=2), encoding="utf-8")
+    st.success(f"JSONに書き出しました：{out_path}")

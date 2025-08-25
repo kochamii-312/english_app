@@ -1,0 +1,68 @@
+[
+  {
+    "timestamp": "20250825_080102",
+    "category": "output",
+    "mode": "discussion",
+    "question": "What is your hobby?",
+    "audio_file": "./recordings\\output_discussion_20250825_080102.wav",
+    "duration_sec": 2.3,
+    "transcript": "Mmm.",
+    "evaluation": {
+      "scores": {
+        "grammar": 0,
+        "content_relevance": 1,
+        "fluency": 1
+      },
+      "comment": "Your response was very brief and did not provide any information about your hobby. It's important to elaborate on your thoughts to fully answer the question. Try to include specific details about what your hobby is and why you enjoy it.",
+      "tips": [
+        "Provide a clear answer to the question.",
+        "Include details about your hobby.",
+        "Practice speaking in full sentences."
+      ]
+    }
+  },
+  {
+    "timestamp": "20250825_080358",
+    "category": "output",
+    "mode": "discussion",
+    "question": "What is your hobby?",
+    "audio_file": "./recordings\\output_discussion_20250825_080358.wav",
+    "duration_sec": 4.05,
+    "transcript": "blbbt, bbbbbt, blahhhh",
+    "evaluation": {
+      "scores": {
+        "grammar": 0,
+        "content_relevance": 0,
+        "fluency": 1
+      },
+      "comment": "Your response does not provide any clear information about your hobby. It seems like you were unable to articulate your thoughts, which makes it difficult to evaluate your grammar and content relevance. Fluency is slightly better, but the overall lack of coherent speech affects your score significantly.",
+      "tips": [
+        "Practice speaking about your hobbies clearly.",
+        "Use simple sentences to express your thoughts.",
+        "Try to organize your ideas before speaking."
+      ]
+    }
+  },
+  {
+    "timestamp": "20250825_080902",
+    "category": "output",
+    "mode": "discussion",
+    "question": "What is your hobby?",
+    "audio_file": "./recordings\\output_discussion_20250825_080902.wav",
+    "duration_sec": 4.14,
+    "transcript": "Oh",
+    "evaluation": {
+      "scores": {
+        "grammar": 0,
+        "content_relevance": 1,
+        "fluency": 1
+      },
+      "comment": "Your response was very brief and did not provide any information about your hobby. It is important to elaborate on your thoughts to fully answer the question. Try to share what your hobby is and why you enjoy it.",
+      "tips": [
+        "Provide a specific hobby.",
+        "Explain why you enjoy that hobby.",
+        "Use complete sentences to express your thoughts."
+      ]
+    }
+  }
+]

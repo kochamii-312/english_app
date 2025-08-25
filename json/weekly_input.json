@@ -1,0 +1,20 @@
+[
+  {
+    "week_num": 1,
+    "english_text": "That's a great idea.",
+    "japanese_text": "それは素晴らしい考えです。",
+    "audio_file": "audio1.mp3"
+  },
+  {
+    "week_num": 2,
+    "english_text": "How are you?",
+    "japanese_text": "元気ですか？",
+    "audio_file": "audio2.mp3"
+  },
+  {
+    "week_num": "3",
+    "english_text": "The rapid advancement of technology has significantly transformed the landscape of education. Online learning platforms have made education more accessible, allowing students from diverse backgrounds to engage in courses that were previously out of reach. This democratization of knowledge fosters inclusivity, as learners can study at their own pace and from anywhere in the world. However, it also raises questions about the effectiveness of online education compared to traditional classroom settings. While some argue that face-to-face interaction enhances learning, others believe that well-structured online programs can provide equally valuable educational experiences. Ultimately, the challenge lies in striking a balance that integrates both methods to optimize learning outcomes for all students.",
+    "japanese_text": "テクノロジーの急速な進歩は、教育の風景を大きく変えました。オンライン学習プラットフォームは教育をよりアクセスしやすくし、さまざまな背景を持つ学生が以前は手の届かなかったコースに参加できるようになりました。この知識の民主化は包括性を促進し、学習者は自分のペースで、世界のどこからでも学ぶことができます。しかし、これはまた、伝統的な教室環境と比較したオンライン教育の効果についての疑問を提起します。対面でのやり取りが学習を強化すると主張する人もいれば、よく構成されたオンラインプログラムが同様に価値のある教育経験を提供できると考える人もいます。最終的には、すべての学生に最適な学習成果をもたらすために、両方の方法を統合するバランスを取ることが課題となります。",
+    "audio_file": "./audio\\week_03.mp3"
+  }
+]
