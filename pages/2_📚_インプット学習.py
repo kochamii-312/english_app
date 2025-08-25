@@ -7,7 +7,7 @@ import re
 import wave
 import datetime as dt
 from typing import Dict, Any, List, Optional
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 from openai import OpenAI
 from st_audiorec import st_audiorec
 
@@ -128,8 +128,9 @@ def append_json(path: str, item: dict) -> None:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 # OpenAI 初期化 (.env から取得)
-load_dotenv()
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# load_dotenv()
+# client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 # =========================
 # データ読み込み/保存ユーティリティ

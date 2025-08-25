@@ -8,7 +8,8 @@ import datetime as dt
 import streamlit as st
 import base64
 import random
-from dotenv import load_dotenv
+import hashlib
+# from dotenv import load_dotenv
 from openai import OpenAI
 from st_audiorec import st_audiorec  # pip install streamlit-audiorec
 
@@ -17,8 +18,9 @@ st.set_page_config(page_title="アウトプット練習", layout="wide")
 st.markdown("## 🗣️ アウトプット練習")
 
 # .env → OPENAI_API_KEY
-load_dotenv()
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# load_dotenv()
+# client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 # 保存先（録音音声 / ログJSON）
 RECORDINGS_DIR_CANDIDATES = [
@@ -299,6 +301,13 @@ mode = st.radio("モードを選んでください", ["DISCUSSION", "DESCRIPTION
 
 if "discussion_q" not in st.session_state:
     st.session_state.discussion_q = "What is your hobby?"
+if "auto_eval" not in st.session_state:
+    st.session_state.auto_eval = True
+if "last_audio_fingerprint" not in st.session_state:
+    st.session_state.last_audio_fingerprint = None
+
+def _fingerprint_audio(b: bytes) -> str:
+    return hashlib.md5(b).hexdigest()
 
 if mode == "DISCUSSION":
     st.subheader("Question")
@@ -351,6 +360,10 @@ else:
 st.divider()
 st.caption("※ 録音ウィジェットはページに1つだけです。モードを切り替えて使ってください。")
 
+st.session_state.auto_eval = st.checkbox(
+    "録音停止したら自動で採点する", value=st.session_state.auto_eval
+)
+
 # 録音（唯一のst_audiorec）
 wav_audio_data = st_audiorec()
 
@@ -358,50 +371,66 @@ if wav_audio_data is not None:
     st.subheader("録音した音声")
     st.audio(wav_audio_data, format="audio/wav")
 
+    # ★ ここで自動採点：新しい録音なら一度だけ走らせる
+    fp = _fingerprint_audio(wav_audio_data)
+    if st.session_state.auto_eval and fp != st.session_state.last_audio_fingerprint:
+        result = handle_recording(
+            category="output",
+            mode=mode.lower(),                       # "discussion"/"description"
+            question=current_question,
+            wav_audio_data=wav_audio_data,
+            image_file=current_image_path if mode == "DESCRIPTION" else None
+        )
+        st.session_state.last_audio_fingerprint = fp
+
+        # 既存の評価表示ロジック（ボタンと同じ表示）を流用したい場合はこの下に転記してOK
+        if result and "evaluation" in result:
+            ev = result["evaluation"]
+            scores = ev.get("scores", {})
+            grammar = int(scores.get("grammar", 0))
+            content_rel = int(scores.get("content_relevance", 0))
+            fluency = int(scores.get("fluency", 0))
+
+            st.markdown("### 📝 評価結果（自動）")
+            m1, m2, m3 = st.columns(3)
+            with m1: st.metric("Grammar", grammar)
+            with m2: st.metric("Content Relevance", content_rel)
+            with m3: st.metric("Fluency", fluency)
+
+            st.progress(min((grammar/5), 1.0))
+            st.progress(min((content_rel/5), 1.0))
+            st.progress(min((fluency/5), 1.0))
+
+            st.markdown("#### 総評")
+            st.write(ev.get("comment", ""))
+
+            tips = ev.get("tips", [])
+            if tips:
+                st.markdown("#### 改善のヒント")
+                for t in tips:
+                    st.write(f"- {t}")
+
+            st.markdown("#### 補助情報")
+            st.write(f"- 音声の長さ: **{result.get('duration_sec', 0)} sec**")
+            if result.get("transcript"):
+                with st.expander("文字起こしを表示"):
+                    st.write(result["transcript"])
+            st.caption(f"保存先: `{result.get('log_path')}`")
+
+    # 手動でも走らせたい人向けのボタンは残す（従来通り）
     c1, c2, _ = st.columns([1,1,2])
     with c1:
         if st.button("💾 保存してAI評価"):
             result = handle_recording(
                 category="output",
-                mode=mode.lower(),                       # "discussion"/"description"
+                mode=mode.lower(),
                 question=current_question,
                 wav_audio_data=wav_audio_data,
                 image_file=current_image_path if mode == "DESCRIPTION" else None
             )
-    
-            # 評価の見やすい表示
-            if result and "evaluation" in result:
-                ev = result["evaluation"]
-                scores = ev.get("scores", {})
-                grammar = int(scores.get("grammar", 0))
-                content_rel = int(scores.get("content_relevance", 0))
-                fluency = int(scores.get("fluency", 0))
+            # 手動実行でも指紋を更新して二重実行を防ぐ
+            st.session_state.last_audio_fingerprint = _fingerprint_audio(wav_audio_data)
 
-                st.markdown("### 📝 評価結果")
-                m1, m2, m3 = st.columns(3)
-                with m1:
-                    st.metric("Grammar", grammar, help="文法の正確さ (0–5)")
-                with m2:
-                    st.metric("Content Relevance", content_rel, help="質問との関連性 (0–5)")
-                with m3:
-                    st.metric("Fluency", fluency, help="流暢さ (0–5)")
-
-                st.progress(min((grammar/5), 1.0))
-                st.progress(min((content_rel/5), 1.0))
-                st.progress(min((fluency/5), 1.0))
-
-                st.markdown("#### 総評")
-                st.write(ev.get("comment", ""))
-
-                tips = ev.get("tips", [])
-                if tips:
-                    st.markdown("#### 改善のヒント")
-                    for t in tips:
-                        st.write(f"- {t}")
-
-                st.markdown("#### 補助情報")
-                st.write(f"- 音声の長さ: **{result.get('duration_sec', 0)} sec**")
-                if result.get("transcript"):
-                    with st.expander("文字起こしを表示"):
-                        st.write(result["transcript"])
-                st.caption(f"保存先: `{result.get('log_path')}`")
+    with c2:
+        st.download_button("⬇️ ダウンロード", wav_audio_data,
+                           file_name="recorded_voice.wav", mime="audio/wav")

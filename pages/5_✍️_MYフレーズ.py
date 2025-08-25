@@ -1,9 +1,10 @@
 import json
+import io
 import os
 import re
 import streamlit as st
 import pandas as pd
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 from openai import OpenAI
 from database import (
     get_folders,
@@ -15,9 +16,9 @@ from database import (
 )
 from pathlib import Path
 
-load_dotenv()
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
+# load_dotenv()
+# client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 def _is_japanese(text: str) -> bool:
     return bool(re.search(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9faf]", text))
@@ -211,3 +212,216 @@ if st.button("🗂️ すべてをJSONにエクスポート"):
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(export, ensure_ascii=False, indent=2), encoding="utf-8")
     st.success(f"JSONに書き出しました：{out_path}")
+
+# ===== CSV から MYフレーズへ一括追加 =====
+st.markdown("---")
+st.header("📥 CSVからMYフレーズに追加")
+
+col0, col1, col2 = st.columns([2, 1, 1])
+with col0:
+    csv_file = st.file_uploader("CSVファイルをアップロード（Excel→CSVで書き出したものでもOK）", type=["csv"])
+with col1:
+    enc = st.selectbox("文字コード", ["utf-8-sig", "utf-8", "cp932(Shift_JIS)"], index=0)
+with col2:
+    sep_label = st.selectbox("区切り", ["カンマ(,)", "タブ(\\t)", "セミコロン(;)"], index=0)
+sep_map = {"カンマ(,)": ",", "タブ(\\t)": "\t", "セミコロン(;)": ";"}
+sep = sep_map[sep_label]
+
+if "csv_preview" not in st.session_state:
+    st.session_state.csv_preview = None
+if "csv_mapped_cols" not in st.session_state:
+    st.session_state.csv_mapped_cols = {"en": None, "jp": None, "folder": None}
+
+if csv_file is not None:
+    # 読み込み（失敗したらエラー表示）
+    try:
+        df = pd.read_csv(io.BytesIO(csv_file.read()), encoding=enc, sep=sep)
+        st.session_state.csv_preview = df
+    except Exception as e:
+        st.error(f"CSVの読み込みに失敗しました: {e}")
+        st.stop()
+
+# プレビュー & マッピング
+if st.session_state.csv_preview is not None:
+    df = st.session_state.csv_preview
+    st.caption("読み込んだ先頭行（プレビュー）")
+    st.dataframe(df.head(20), use_container_width=True)
+
+    cols = df.columns.tolist()
+    # それっぽい列名を推測
+    def _guess(cands):
+        for c in cols:
+            lc = str(c).lower()
+            if any(k in lc for k in cands):
+                return c
+        return cols[0] if cols else None
+
+    col_en = st.selectbox("英語の列", cols, index=cols.index(_guess(["english","en","eng"])) if cols else 0)
+    col_jp = st.selectbox("日本語の列", cols, index=cols.index(_guess(["japanese","jp","ja","jpn"])) if cols else 0)
+    col_folder = st.selectbox("フォルダ列（任意/1列）", ["(なし)"] + cols, index=0)
+
+    st.session_state.csv_mapped_cols = {"en": col_en, "jp": col_jp, "folder": None if col_folder=="(なし)" else col_folder}
+
+    st.write("—")
+
+    # 追加先フォルダ（CSVにフォルダ列が無い場合は全行このフォルダへ）
+    try:
+        all_folders = get_folders()
+    except Exception:
+        all_folders = ["MYフレーズ集", "言えなかったフレーズ", "単語"]
+
+    if st.session_state.csv_mapped_cols["folder"] is None:
+        default_targets = st.multiselect("追加先フォルダ（CSVにフォルダ列が無い場合は全行このフォルダへ）", all_folders)
+    else:
+        default_targets = []  # フォルダ列を使う
+
+    # オプション
+    cA, cB, cC = st.columns(3)
+    with cA:
+        do_translate = st.checkbox("空欄は翻訳で補完（英↔日を自動判定）", value=True)
+    with cB:
+        create_missing = st.checkbox("存在しないフォルダは自動作成", value=True)
+    with cC:
+        dedupe = st.checkbox("既存と重複する行はスキップ", value=True)
+
+    # 取込対象の作成（プレビュー）
+    if st.button("👀 取込プレビューを作成", use_container_width=True):
+        en_col = st.session_state.csv_mapped_cols["en"]
+        jp_col = st.session_state.csv_mapped_cols["jp"]
+        f_col = st.session_state.csv_mapped_cols["folder"]
+
+        if en_col is None or jp_col is None:
+            st.error("英語列と日本語列を指定してください。")
+            st.stop()
+        if f_col is None and not default_targets:
+            st.warning("フォルダ列が無い場合は、追加先フォルダを1つ以上選んでください。")
+            st.stop()
+
+        # 既存DBの重複集合を用意
+        existing_pairs_by_folder = {}
+        if dedupe:
+            try:
+                for f in (all_folders if f_col is None else df[f_col].dropna().unique().tolist()):
+                    if not f or str(f).strip() == "":
+                        continue
+                    try:
+                        cur = get_phrases_by_folder(str(f))
+                        if cur is not None and not cur.empty:
+                            # 正規化（余分な空白除去）
+                            s = set((str(r["japanese"]).strip(), str(r["english"]).strip()) for _, r in cur.iterrows())
+                            existing_pairs_by_folder[str(f)] = s
+                        else:
+                            existing_pairs_by_folder[str(f)] = set()
+                    except Exception:
+                        existing_pairs_by_folder[str(f)] = set()
+            except Exception:
+                # フォルダ列がない場合の default_targets
+                for f in default_targets:
+                    try:
+                        cur = get_phrases_by_folder(str(f))
+                        if cur is not None and not cur.empty:
+                            s = set((str(r["japanese"]).strip(), str(r["english"]).strip()) for _, r in cur.iterrows())
+                            existing_pairs_by_folder[str(f)] = s
+                        else:
+                            existing_pairs_by_folder[str(f)] = set()
+                    except Exception:
+                        existing_pairs_by_folder[str(f)] = set()
+
+        # 行を走査して取込候補を生成
+        preview_rows = []
+        for _, row in df.iterrows():
+            en = str(row.get(en_col, "")).strip()
+            jp = str(row.get(jp_col, "")).strip()
+
+            # どのフォルダに入れるか
+            targets = [str(row.get(f_col)).strip()] if (f_col is not None and str(row.get(f_col, "")).strip()) else default_targets
+            if not targets:
+                continue
+
+            # 翻訳補完
+            if do_translate and (not en or not jp):
+                try:
+                    tr = translate_text(client, en or jp)  # どちらか片方を渡す（関数側で自動判定）
+                    if not en:
+                        en = tr["english"].strip()
+                    if not jp:
+                        jp = tr["japanese"].strip()
+                except Exception as e:
+                    st.warning(f"翻訳補完に失敗した行があります: {e}")
+
+            # 空行スキップ
+            if not en and not jp:
+                continue
+
+            # 重複チェック（対象フォルダごとに）
+            dup_in = []
+            if dedupe:
+                for f in targets:
+                    ex = existing_pairs_by_folder.get(str(f), set())
+                    if (jp, en) in ex:
+                        dup_in.append(str(f))
+
+            preview_rows.append({
+                "english": en,
+                "japanese": jp,
+                "folders": ", ".join(targets),
+                "duplicate_in": ", ".join(dup_in) if dup_in else ""
+            })
+
+        if not preview_rows:
+            st.warning("取込対象がありません（空行のみ/フォルダ未指定/すべて重複の可能性）。")
+        else:
+            st.session_state.csv_import_preview = pd.DataFrame(preview_rows)
+            st.success(f"{len(preview_rows)} 行をプレビューに追加しました。下で確認して『インポート実行』を押してください。")
+
+    # プレビュー表示 & インポート実行
+    if "csv_import_preview" in st.session_state and isinstance(st.session_state.csv_import_preview, pd.DataFrame):
+        st.dataframe(st.session_state.csv_import_preview, use_container_width=True)
+
+        if st.button("📥 インポート実行", type="primary", use_container_width=True):
+            dfp = st.session_state.csv_import_preview
+            done = 0
+            skipped = 0
+            created_folders = 0
+
+            # 存在しないフォルダを作成（オプション）
+            if create_missing:
+                # プレビューの folders 列から候補抽出
+                want_folders = set()
+                for fs in dfp["folders"]:
+                    for f in [x.strip() for x in str(fs).split(",") if str(fs).strip()]:
+                        want_folders.add(f)
+                # 既存との差分を作成
+                try:
+                    cur_folders = set(get_folders())
+                except Exception:
+                    cur_folders = set()
+                for f in (want_folders - cur_folders):
+                    try:
+                        add_folder(f)
+                        created_folders += 1
+                    except Exception:
+                        pass
+
+            # 実インポート
+            progress = st.progress(0)
+            for i, row in dfp.iterrows():
+                en = str(row["english"]).strip()
+                jp = str(row["japanese"]).strip()
+                targets = [x.strip() for x in str(row["folders"]).split(",") if str(row["folders"]).strip()]
+                dups = [x.strip() for x in str(row.get("duplicate_in","")).split(",") if str(row.get("duplicate_in","")).strip()]
+
+                for f in targets:
+                    if dedupe and f in dups:
+                        skipped += 1
+                        continue
+                    try:
+                        add_phrase(f, jp, en)
+                        done += 1
+                    except Exception as e:
+                        st.error(f"『{f}』への追加でエラー: {e}")
+                progress.progress(int((i+1)/len(dfp)*100))
+
+            st.success(f"インポート完了：追加 {done} 件 / スキップ(重複) {skipped} 件 / 新規フォルダ作成 {created_folders} 件")
+            # 後片付け
+            del st.session_state["csv_import_preview"]
